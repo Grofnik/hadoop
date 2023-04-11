@@ -1,0 +1,156 @@
+package Client;
+
+
+import org.apache.commons.io.IOUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.*;
+
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+
+
+public class HdfsClient {
+    final String hadoopURL = "hdfs://192.168.232.164:9000/";
+    String tempLocalPath;
+    String tempExternalPath;
+    final FileSystem fs;
+    final LocalFileSystem localFs;
+
+    public HdfsClient() throws IOException, URISyntaxException, InterruptedException {
+        Configuration conf = new Configuration();
+        conf.set("dfs.client.block.write.replace-datanode-on-failure.policy", "NEVER");
+        fs = FileSystem.get(new URI(hadoopURL), conf, "root");
+        this.localFs = LocalFileSystem.getLocal(conf);
+        this.tempExternalPath = fs.getWorkingDirectory().toString();
+        this.tempLocalPath = localFs.getWorkingDirectory().toString();
+    }
+
+    public boolean mkdir(List<String> path) throws IOException {
+        String newDirPath = path.stream().skip(1).collect(Collectors.joining("/"));
+        Path newDir = new Path(hadoopURL + newDirPath);
+        tempExternalPath = newDirPath;
+        return fs.mkdirs(newDir);
+    }
+
+    public boolean put(List<String> localFileName) {
+        String localtFilePath = localFileName.stream().skip(1).collect(Collectors.joining("/"));
+        try {
+            if (localFs.exists(new Path("/" + localtFilePath))) {
+                fs.createFile(new Path(tempExternalPath + localFileName.get(localFileName.size() - 1)));
+                fs.copyFromLocalFile(false, new Path(localtFilePath),
+                        new Path(tempExternalPath + localFileName.get(localFileName.size() - 1)));
+                tempLocalPath = localtFilePath.substring(0, localtFilePath.lastIndexOf('/'));
+                return true;
+            } else {
+                throw new IOException("File doesn't exist");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean get(List<String> externalFilePath) {
+        String externalFile = externalFilePath.stream().skip(1).collect(Collectors.joining("/"));
+        try {
+            if (fs.exists(new Path(tempExternalPath + externalFile))) {
+                fs.copyToLocalFile(false,
+                        new Path(tempExternalPath + externalFile),
+                        new Path(tempLocalPath + externalFilePath.get(externalFilePath.size() - 1)));
+                tempExternalPath = externalFile.substring(0, externalFile.lastIndexOf("/"));
+                return true;
+            } else {
+                throw new IOException("File doesn't exist");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean append(String localFileName, String externalFileName) {
+        try (FSDataOutputStream out = fs.append(new Path(hadoopURL + externalFileName))) {
+            InputStream in = new FileInputStream("/" + localFileName);
+            String content = IOUtils.toString(in, StandardCharsets.UTF_8);
+            out.writeBytes(content);
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean delete(List<String> path) throws IOException {
+        String deletePath = path.stream().skip(1).collect(Collectors.joining("/"));
+        return fs.delete(new Path(hadoopURL + deletePath), true);
+    }
+
+    public boolean ls() {
+        try {
+            FileStatus[] externalFileArray = fs.listStatus(new Path(tempExternalPath));
+            Arrays.stream(externalFileArray).forEach(file -> System.out.println(file.getPath()));
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean cd(List<String> path) {
+        String tempPath = "";
+        if (path.contains("..")) {
+            tempPath = tempExternalPath.substring(1, tempExternalPath.lastIndexOf("/"));
+        } else {
+            tempPath = path.stream().skip(1L).collect(Collectors.joining("/"));
+        }
+        try {
+            if (fs.exists(new Path(hadoopURL + tempPath))) {
+                tempExternalPath = hadoopURL + tempPath;
+            }
+            System.out.println(tempExternalPath);
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean lls() {
+        try {
+            FileStatus[] localFileArray = localFs.listStatus(new Path(tempLocalPath));
+            Arrays.stream(localFileArray).forEach(file -> System.out.println(file.getPath()));
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean lcd(List<String> path) {
+        String tempPath = "";
+        if (path.contains("..")) {
+            tempPath = tempLocalPath.substring(0, tempLocalPath.lastIndexOf("/"));
+        } else {
+            tempPath = path.stream().skip(0).collect(Collectors.joining("/"));
+        }
+        try {
+            if (localFs.exists(new Path("/" + tempPath))) {
+                tempLocalPath = tempPath;
+            }
+            System.out.println(tempLocalPath);
+            return true;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+
+}
